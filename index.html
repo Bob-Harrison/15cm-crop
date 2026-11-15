@@ -1,0 +1,342 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#1f1d1a">
+<title>Print Ref</title>
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg:#ecebe7; --panel:#ffffff; --ink:#1f1d1a; --muted:#6f6a63; --line:#e1dfd9;
+    --accent:#d9532b; --accent-dark:#b9431f; --accent-ink:#fff;
+    --soft:#f6f5f2; --radius:14px;
+  }
+  * { box-sizing:border-box; }
+  html, body { height:100%; }
+  body { margin:0; font-family:'Inter', system-ui, -apple-system, sans-serif; background:var(--bg); color:var(--ink); -webkit-font-smoothing:antialiased; }
+
+  .app { display:flex; flex-direction:column; height:100vh; }
+
+  header { display:flex; align-items:center; gap:14px; padding:14px 22px; background:var(--ink); color:#fff; }
+  header .logo { width:34px; height:34px; border-radius:9px; background:var(--accent); display:grid; place-items:center; font-weight:700; font-size:15px; letter-spacing:-.02em; }
+  header h1 { font-size:17px; margin:0; font-weight:600; }
+  header .sub { font-size:13px; color:#b9b4ac; margin-left:auto; }
+
+  main { flex:1; display:grid; grid-template-columns: 1fr 340px; gap:18px; padding:14px 18px; min-height:0; }
+  @media (max-width:860px){ main{ grid-template-columns:1fr; overflow:auto; } }
+
+  #stage { background:var(--panel); border:1px solid var(--line); border-radius:var(--radius); display:flex; align-items:center; justify-content:center; position:relative; overflow:hidden; min-height:380px; }
+  #stage.drag { outline:3px dashed var(--accent); outline-offset:-8px; }
+  #placeholder { text-align:center; color:var(--muted); font-size:15px; line-height:1.6; max-width:360px; padding:30px; }
+  #placeholder .big { display:block; font-size:19px; font-weight:600; color:var(--ink); margin-bottom:6px; }
+  #placeholder button { margin-top:18px; }
+  canvas { display:block; touch-action:none; cursor:crosshair; max-width:100%; max-height:100%; }
+
+  aside { display:flex; flex-direction:column; gap:10px; min-height:0; overflow:auto; }
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:var(--radius); padding:13px 16px; }
+  .step { display:flex; align-items:center; gap:10px; margin:0 0 9px; font-weight:600; font-size:14px; }
+  .step .n { width:24px; height:24px; border-radius:50%; background:var(--ink); color:#fff; display:grid; place-items:center; font-size:12px; font-weight:700; flex:none; }
+  .card.done .step .n { background:#2e9e5b; }
+  .card.active { border-color:var(--accent); box-shadow:0 0 0 3px rgba(217,83,43,.15); }
+
+  button { font:inherit; font-weight:600; font-size:15px; padding:11px 14px; border-radius:10px; border:1.5px solid var(--line); background:var(--soft); color:var(--ink); cursor:pointer; display:inline-flex; align-items:center; justify-content:center; gap:8px; transition:background .12s, transform .05s; width:100%; }
+  button:hover:not(:disabled) { background:#ecebe6; }
+  button:active:not(:disabled) { transform:translateY(1px); }
+  button:disabled { opacity:.4; cursor:not-allowed; }
+  button.primary { background:var(--accent); border-color:var(--accent); color:var(--accent-ink); font-size:17px; padding:16px 18px; box-shadow:0 6px 16px rgba(217,83,43,.28); }
+  button.primary:hover:not(:disabled) { background:var(--accent-dark); }
+  button.dark { background:var(--ink); border-color:var(--ink); color:#fff; }
+  button.dark:hover:not(:disabled) { background:#000; }
+  button svg { width:20px; height:20px; flex:none; }
+  .row { display:flex; gap:8px; }
+
+  label { font-size:12.5px; font-weight:500; color:var(--muted); display:block; margin:8px 0 4px; }
+  input[type=text], select { width:100%; padding:11px 12px; border:1.5px solid var(--line); border-radius:10px; font:inherit; font-size:15px; background:#fff; }
+  input[type=text]:focus, select:focus { outline:none; border-color:var(--accent); }
+  .name-wrap { position:relative; }
+  .name-wrap span { position:absolute; right:12px; top:50%; transform:translateY(-50%); color:var(--muted); font-size:14px; pointer-events:none; }
+  .name-wrap input { padding-right:46px; }
+  input[type=range] { width:100%; accent-color:var(--accent); margin:6px 0 2px; }
+  .hint { font-size:12.5px; color:var(--muted); line-height:1.45; margin-top:6px; }
+
+  #status { font-size:13px; color:var(--muted); min-height:18px; margin-top:10px; line-height:1.4; }
+  #status.ok { color:#2e9e5b; font-weight:500; }
+  #status.err { color:#c0392b; }
+  #preview { width:100%; border:1px solid var(--line); border-radius:8px; background:#fff; display:none; margin-top:10px; }
+
+  .toast { position:fixed; left:50%; bottom:22px; transform:translateX(-50%) translateY(20px); background:var(--ink); color:#fff; padding:12px 18px; border-radius:10px; font-size:14px; opacity:0; transition:.2s; pointer-events:none; }
+  .toast.show { opacity:1; transform:translateX(-50%) translateY(0); }
+</style>
+</head>
+<body>
+<div class="app">
+<header>
+  <div class="logo">PR</div>
+  <h1>Print Ref</h1>
+  <span class="sub">15 cm square on A4 · painting reference</span>
+</header>
+
+<main>
+  <div id="stage">
+    <div id="placeholder">
+      <span class="big">Drop a photo here</span>
+      or pick one from Google Drive, Downloads or anywhere on this Chromebook.
+      <button class="dark" id="openBtn2">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>
+        Open image
+      </button>
+    </div>
+    <canvas id="cv" hidden></canvas>
+  </div>
+
+  <aside>
+    <input type="file" id="file" accept="image/*" hidden>
+
+    <div class="card active" id="card1">
+      <div class="step"><span class="n">1</span>Choose a photo</div>
+      <button class="dark" id="openBtn">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>
+        Open image…
+      </button>
+      <div class="hint">Google Drive is in the file picker's left-hand list.</div>
+    </div>
+
+    <div class="card" id="card2">
+      <div class="step"><span class="n">2</span>Frame the square</div>
+      <label for="size">Square size</label>
+      <input type="range" id="size" min="5" max="100" value="100" disabled>
+      <div class="row" style="margin-top:8px">
+        <button id="centreBtn" disabled>Centre</button>
+        <button id="maxBtn" disabled>Biggest</button>
+      </div>
+      <div class="hint">Drag the square to move it, drag its corner to resize, or draw a new one anywhere on the photo.</div>
+    </div>
+
+    <div class="card" id="card3">
+      <div class="step"><span class="n">3</span>Name it and create</div>
+      <label for="name">File name</label>
+      <div class="name-wrap">
+        <input type="text" id="name" placeholder="chair" autocomplete="off">
+        <span>.jpg</span>
+      </div>
+      <label for="dpi">Print quality</label>
+      <select id="dpi">
+        <option value="150">150 dpi — smaller file</option>
+        <option value="200" selected>200 dpi — recommended</option>
+        <option value="300">300 dpi — sharpest</option>
+      </select>
+      <div style="height:10px"></div>
+      <button class="primary" id="createBtn" disabled>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9V3h12v6"/><rect x="3" y="9" width="18" height="9" rx="2"/><path d="M6 14h12v7H6z"/></svg>
+        Create print ref
+      </button>
+      <div class="hint">You'll choose where to save — Drive, Downloads, etc.</div>
+      <div id="status"></div>
+      <img id="preview" alt="A4 preview">
+    </div>
+  </aside>
+</main>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+(() => {
+  const A4_MM = [210, 297];
+  const SQUARE_MM = 150;
+
+  const $ = id => document.getElementById(id);
+  const stage = $('stage'), cv = $('cv'), ctx = cv.getContext('2d');
+  const fileInput = $('file'), sizeSlider = $('size'), centreBtn = $('centreBtn'), maxBtn = $('maxBtn');
+  const dpiSel = $('dpi'), nameInput = $('name'), createBtn = $('createBtn'), status = $('status'), preview = $('preview');
+
+  let img = null, scale = 1, sel = { x:0, y:0, s:0 }, drag = null;
+  const HANDLE = 16;
+
+  // ---------- loading ----------
+  $('openBtn').onclick = $('openBtn2').onclick = () => fileInput.click();
+  fileInput.onchange = () => { if (fileInput.files[0]) loadFile(fileInput.files[0]); fileInput.value = ''; };
+
+  stage.addEventListener('dragover', e => { e.preventDefault(); stage.classList.add('drag'); });
+  stage.addEventListener('dragleave', () => stage.classList.remove('drag'));
+  stage.addEventListener('drop', e => {
+    e.preventDefault(); stage.classList.remove('drag');
+    const f = e.dataTransfer.files && e.dataTransfer.files[0];
+    if (f) loadFile(f);
+  });
+
+  function loadFile(file) {
+    if (!file.type.startsWith('image/')) { setStatus('That file isn\'t an image.', 'err'); return; }
+    const url = URL.createObjectURL(file);
+    const im = new Image();
+    im.onload = () => {
+      URL.revokeObjectURL(url);
+      img = im;
+      nameInput.value = file.name.replace(/\.[^.]+$/, '');
+      $('placeholder').hidden = true;
+      cv.hidden = false;
+      fitCanvas(); setMax(); enable(true);
+      preview.style.display = 'none';
+      setStatus('');
+      setCards(2);
+      toast(`Loaded ${im.naturalWidth} × ${im.naturalHeight} px`);
+    };
+    im.onerror = () => setStatus('Could not read that image.', 'err');
+    im.src = url;
+  }
+
+  function setCards(active) {
+    [1,2,3].forEach(n => {
+      const c = $('card' + n);
+      c.classList.toggle('active', n === active);
+      c.classList.toggle('done', n < active);
+    });
+  }
+  function enable(on) { [sizeSlider, centreBtn, maxBtn, createBtn].forEach(el => el.disabled = !on); }
+
+  function fitCanvas() {
+    const maxW = stage.clientWidth - 24, maxH = stage.clientHeight - 24;
+    scale = Math.min(maxW / img.naturalWidth, maxH / img.naturalHeight, 1);
+    cv.width = Math.round(img.naturalWidth * scale);
+    cv.height = Math.round(img.naturalHeight * scale);
+    draw();
+  }
+  window.addEventListener('resize', () => { if (img) fitCanvas(); });
+
+  // ---------- selection ----------
+  const maxSquare = () => Math.min(img.naturalWidth, img.naturalHeight);
+  function setMax() { sel.s = maxSquare(); centre(); syncSlider(); }
+  function centre() { sel.x = (img.naturalWidth - sel.s) / 2; sel.y = (img.naturalHeight - sel.s) / 2; draw(); }
+  function clamp() {
+    sel.s = Math.max(20, Math.min(sel.s, maxSquare()));
+    sel.x = Math.max(0, Math.min(sel.x, img.naturalWidth - sel.s));
+    sel.y = Math.max(0, Math.min(sel.y, img.naturalHeight - sel.s));
+  }
+  const syncSlider = () => sizeSlider.value = Math.round(sel.s / maxSquare() * 100);
+
+  sizeSlider.oninput = () => {
+    const cx = sel.x + sel.s / 2, cy = sel.y + sel.s / 2;
+    sel.s = maxSquare() * sizeSlider.value / 100;
+    sel.x = cx - sel.s / 2; sel.y = cy - sel.s / 2;
+    clamp(); draw();
+  };
+  centreBtn.onclick = centre;
+  maxBtn.onclick = setMax;
+
+  function draw() {
+    if (!img) return;
+    ctx.clearRect(0, 0, cv.width, cv.height);
+    ctx.drawImage(img, 0, 0, cv.width, cv.height);
+    const x = sel.x * scale, y = sel.y * scale, s = sel.s * scale;
+    ctx.fillStyle = 'rgba(20,18,15,0.55)';
+    ctx.beginPath(); ctx.rect(0, 0, cv.width, cv.height); ctx.rect(x, y, s, s); ctx.fill('evenodd');
+    ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.strokeRect(x + 1, y + 1, s - 2, s - 2);
+    ctx.strokeStyle = 'rgba(255,255,255,0.35)'; ctx.lineWidth = 1;
+    for (let i = 1; i < 3; i++) {
+      ctx.beginPath(); ctx.moveTo(x + s*i/3, y); ctx.lineTo(x + s*i/3, y + s); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(x, y + s*i/3); ctx.lineTo(x + s, y + s*i/3); ctx.stroke();
+    }
+    ctx.fillStyle = '#d9532b';
+    ctx.beginPath(); ctx.arc(x + s, y + s, HANDLE/2 + 2, 0, Math.PI*2); ctx.fill();
+    ctx.strokeStyle = '#fff'; ctx.lineWidth = 2.5; ctx.stroke();
+  }
+
+  function pos(e) {
+    const r = cv.getBoundingClientRect();
+    return { x: (e.clientX - r.left) * cv.width / r.width, y: (e.clientY - r.top) * cv.height / r.height };
+  }
+  function hit(p) {
+    const x = sel.x*scale, y = sel.y*scale, s = sel.s*scale;
+    const dh = Math.hypot(p.x - (x+s), p.y - (y+s));
+    if (dh <= HANDLE) return 'resize';
+    if (p.x >= x && p.x <= x+s && p.y >= y && p.y <= y+s) return 'move';
+    return 'new';
+  }
+
+  cv.addEventListener('pointerdown', e => {
+    if (!img) return;
+    cv.setPointerCapture(e.pointerId);
+    const p = pos(e), h = hit(p);
+    if (h === 'resize') drag = { mode:'resize', start:{...sel} };
+    else if (h === 'move') drag = { mode:'move', ox:p.x, oy:p.y, start:{...sel} };
+    else { drag = { mode:'new' }; sel.x = p.x/scale; sel.y = p.y/scale; sel.s = 20; }
+  });
+  cv.addEventListener('pointermove', e => {
+    const p = pos(e);
+    if (!drag) {
+      if (!img) return;
+      const h = hit(p);
+      cv.style.cursor = h === 'resize' ? 'nwse-resize' : h === 'move' ? 'move' : 'crosshair';
+      return;
+    }
+    if (drag.mode === 'move') { sel.x = drag.start.x + (p.x - drag.ox)/scale; sel.y = drag.start.y + (p.y - drag.oy)/scale; }
+    else if (drag.mode === 'resize') sel.s = Math.max(p.x/scale - drag.start.x, p.y/scale - drag.start.y);
+    else sel.s = Math.max(p.x/scale - sel.x, p.y/scale - sel.y, 20);
+    clamp(); syncSlider(); draw();
+  });
+  const end = () => { drag = null; };
+  cv.addEventListener('pointerup', end); cv.addEventListener('pointercancel', end);
+
+  // ---------- output ----------
+  const mmToPx = (mm, dpi) => Math.round(mm / 25.4 * dpi);
+
+  function setJpegDpi(buf, dpi) {
+    const b = new Uint8Array(buf);
+    if (b[0]===0xFF && b[1]===0xD8 && b[2]===0xFF && b[3]===0xE0 && b[6]===0x4A && b[7]===0x46 && b[8]===0x49 && b[9]===0x46) {
+      b[13] = 1; b[14] = dpi >> 8; b[15] = dpi & 0xFF; b[16] = dpi >> 8; b[17] = dpi & 0xFF;
+    }
+    return b;
+  }
+
+  async function createPrintRef() {
+    const dpi = parseInt(dpiSel.value, 10);
+    const W = mmToPx(A4_MM[0], dpi), H = mmToPx(A4_MM[1], dpi), S = mmToPx(SQUARE_MM, dpi);
+    const out = document.createElement('canvas'); out.width = W; out.height = H;
+    const c = out.getContext('2d');
+    c.fillStyle = '#fff'; c.fillRect(0, 0, W, H);
+    c.imageSmoothingEnabled = true; c.imageSmoothingQuality = 'high';
+    c.drawImage(img, Math.round(sel.x), Math.round(sel.y), Math.round(sel.s), Math.round(sel.s), Math.round((W-S)/2), Math.round((H-S)/2), S, S);
+
+    const blob = await new Promise(r => out.toBlob(r, 'image/jpeg', 0.95));
+    const final = new Blob([setJpegDpi(await blob.arrayBuffer(), dpi)], { type:'image/jpeg' });
+
+    let name = (nameInput.value || 'print-ref').trim().replace(/[\\/:*?"<>|]/g, '-');
+    if (!/\.jpe?g$/i.test(name)) name += '.jpg';
+
+    preview.src = URL.createObjectURL(final);
+    preview.style.display = 'block';
+
+    const detail = `${W} × ${H} px at ${dpi} dpi, square ${S} px (${SQUARE_MM/10} cm)`;
+    if (window.showSaveFilePicker) {
+      try {
+        const handle = await window.showSaveFilePicker({ suggestedName:name, types:[{ description:'JPEG image', accept:{ 'image/jpeg':['.jpg','.jpeg'] } }] });
+        const w = await handle.createWritable(); await w.write(final); await w.close();
+        setStatus(`Saved ${handle.name} — ${detail}`, 'ok'); toast('Saved ✓'); return;
+      } catch (err) {
+        if (err.name === 'AbortError') { setStatus('Save cancelled.'); return; }
+      }
+    }
+    const a = document.createElement('a'); a.href = preview.src; a.download = name; a.click();
+    setStatus(`Downloaded ${name} — ${detail}`, 'ok'); toast('Saved to Downloads ✓');
+  }
+
+  createBtn.onclick = () => {
+    if (!img) return;
+    setCards(3); createBtn.disabled = true; setStatus('Building A4…');
+    createPrintRef().catch(e => setStatus('Something went wrong: ' + e.message, 'err')).finally(() => createBtn.disabled = false);
+  };
+  nameInput.addEventListener('keydown', e => { if (e.key === 'Enter' && !createBtn.disabled) createBtn.click(); });
+
+  function setStatus(t, cls) { status.textContent = t; status.className = cls || ''; }
+  let tt; function toast(t) { const el = $('toast'); el.textContent = t; el.classList.add('show'); clearTimeout(tt); tt = setTimeout(() => el.classList.remove('show'), 2200); }
+
+  // ---------- PWA ----------
+  if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
+})();
+</script>
+</body>
+</html>
