@@ -6,6 +6,7 @@
 <meta name="theme-color" content="#1f1d1a">
 <title>Print Ref</title>
 <link rel="manifest" href="manifest.json">
+<script src="https://accounts.google.com/gsi/client" async defer></script>
 <link rel="icon" href="icon-192.png">
 <link rel="apple-touch-icon" href="icon-192.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -69,6 +70,16 @@
   #status.err { color:#c0392b; }
   #preview { width:100%; border:1px solid var(--line); border-radius:8px; background:#fff; display:none; margin-top:10px; }
 
+  .modal-bg { position:fixed; inset:0; background:rgba(20,18,15,.55); display:none; align-items:center; justify-content:center; z-index:50; }
+  .modal-bg.show { display:flex; }
+  .modal { background:#fff; border-radius:16px; padding:24px; width:min(420px, 92vw); box-shadow:0 20px 60px rgba(0,0,0,.3); }
+  .modal h3 { margin:0 0 8px; font-size:17px; }
+  .modal p { margin:0 0 14px; color:var(--muted); font-size:14px; line-height:1.5; }
+  .modal .spin { width:22px; height:22px; border:3px solid var(--line); border-top-color:var(--accent); border-radius:50%; animation:spin .8s linear infinite; display:inline-block; vertical-align:middle; margin-right:8px; }
+  @keyframes spin { to { transform:rotate(360deg); } }
+  button.google { background:#fff; border-color:#dadce0; }
+  button.google svg { width:20px; height:20px; }
+  .gear { width:auto; padding:6px 9px; font-size:12px; font-weight:500; color:var(--muted); background:none; border:none; margin-left:auto; }
   .toast { position:fixed; left:50%; bottom:22px; transform:translateX(-50%) translateY(20px); background:var(--ink); color:#fff; padding:12px 18px; border-radius:10px; font-size:14px; opacity:0; transition:.2s; pointer-events:none; }
   .toast.show { opacity:1; transform:translateX(-50%) translateY(0); }
 </style>
@@ -103,7 +114,12 @@
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>
         Open image…
       </button>
-      <div class="hint">Google Drive is in the file picker's left-hand list.</div>
+      <div style="height:8px"></div>
+      <button class="google" id="photosBtn">
+        <svg viewBox="0 0 48 48"><path fill="#EA4335" d="M24 9.5c3.5 0 6.6 1.2 9.1 3.6l6.8-6.8C35.8 2.4 30.3 0 24 0 14.6 0 6.5 5.4 2.6 13.2l7.9 6.1C12.4 13.6 17.7 9.5 24 9.5z"/><path fill="#4285F4" d="M46.5 24.5c0-1.6-.1-3.1-.4-4.5H24v9h12.7c-.6 3-2.3 5.5-4.8 7.2l7.5 5.8c4.4-4 7.1-10 7.1-17.5z"/><path fill="#FBBC05" d="M10.5 28.7A14.5 14.5 0 0 1 9.5 24c0-1.6.3-3.2.9-4.7l-7.9-6.1A24 24 0 0 0 0 24c0 3.9.9 7.5 2.6 10.8l7.9-6.1z"/><path fill="#34A853" d="M24 48c6.3 0 11.7-2.1 15.6-5.7l-7.5-5.8c-2.1 1.4-4.8 2.3-8.1 2.3-6.3 0-11.6-4.1-13.5-9.8l-7.9 6.1C6.5 42.6 14.6 48 24 48z"/></svg>
+        Choose from Google Photos
+      </button>
+      <div class="hint" style="display:flex;align-items:center;white-space:nowrap">Drive is in the file picker.<button class="gear" id="gearBtn" title="Google Photos setup">⚙ Photos setup</button></div>
     </div>
 
     <div class="card" id="card2">
@@ -143,6 +159,21 @@
 </main>
 </div>
 <div class="toast" id="toast"></div>
+<div class="modal-bg" id="modal">
+  <div class="modal">
+    <h3 id="modalTitle">Pick a photo in Google Photos</h3>
+    <p id="modalText"><span class="spin"></span>A Google Photos tab has opened. Choose one photo there and press <b>Done</b> — it will appear here automatically.</p>
+    <button id="modalCancel">Cancel</button>
+  </div>
+</div>
+<div class="modal-bg" id="setup">
+  <div class="modal">
+    <h3>Google Photos setup</h3>
+    <p>Paste the OAuth <b>Client ID</b> from your Google Cloud project (it ends in <code>.apps.googleusercontent.com</code>). It's stored only on this device.</p>
+    <input type="text" id="clientIdInput" placeholder="xxxxxxxx.apps.googleusercontent.com" style="margin-bottom:12px">
+    <div class="row"><button id="setupCancel">Cancel</button><button class="dark" id="setupSave">Save</button></div>
+  </div>
+</div>
 
 <script>
 (() => {
@@ -333,6 +364,80 @@
 
   function setStatus(t, cls) { status.textContent = t; status.className = cls || ''; }
   let tt; function toast(t) { const el = $('toast'); el.textContent = t; el.classList.add('show'); clearTimeout(tt); tt = setTimeout(() => el.classList.remove('show'), 2200); }
+
+  // ---------- Google Photos (Picker API) ----------
+  const DEFAULT_CLIENT_ID = '';   // optionally hard-code your OAuth client ID here
+  const SCOPE = 'https://www.googleapis.com/auth/photospicker.mediaitems.readonly';
+  const API = 'https://photospicker.googleapis.com/v1';
+  let token = null, tokenExp = 0, pickAbort = null;
+
+  const getClientId = () => { try { return localStorage.getItem('gp_client_id') || DEFAULT_CLIENT_ID; } catch { return DEFAULT_CLIENT_ID; } };
+  const setupBox = $('setup'), modal = $('modal');
+  $('gearBtn').onclick = () => { $('clientIdInput').value = getClientId(); setupBox.classList.add('show'); $('clientIdInput').focus(); };
+  $('setupCancel').onclick = () => setupBox.classList.remove('show');
+  $('setupSave').onclick = () => { try { localStorage.setItem('gp_client_id', $('clientIdInput').value.trim()); } catch {} setupBox.classList.remove('show'); toast('Saved'); };
+
+  function getToken() {
+    return new Promise((resolve, reject) => {
+      if (token && Date.now() < tokenExp - 60000) return resolve(token);
+      if (!window.google || !google.accounts) return reject(new Error('Google sign-in library not loaded — check your connection.'));
+      const tc = google.accounts.oauth2.initTokenClient({
+        client_id: getClientId(), scope: SCOPE,
+        callback: r => { if (r.error) return reject(new Error(r.error_description || r.error)); token = r.access_token; tokenExp = Date.now() + (r.expires_in || 3600) * 1000; resolve(token); },
+        error_callback: e => reject(new Error(e.message || e.type || 'Sign-in cancelled'))
+      });
+      tc.requestAccessToken({ prompt: token ? '' : 'consent' });
+    });
+  }
+  const gfetch = (url, opt = {}) => fetch(url, { ...opt, headers: { Authorization: 'Bearer ' + token, ...(opt.headers || {}) } });
+  const secs = v => (parseFloat(v) || 3) * 1000;
+  const sleep = (ms, signal) => new Promise((res, rej) => { const t = setTimeout(res, ms); signal.addEventListener('abort', () => { clearTimeout(t); rej(new DOMException('cancelled', 'AbortError')); }, { once: true }); });
+
+  $('photosBtn').onclick = async () => {
+    if (!getClientId()) { $('gearBtn').click(); setStatus('Add your Google client ID first (⚙ setup).', 'err'); return; }
+    // Open the tab synchronously so the popup isn't blocked, then point it at the picker.
+    const win = window.open('about:blank', '_blank');
+    pickAbort = new AbortController(); const signal = pickAbort.signal;
+    let session = null;
+    try {
+      await getToken();
+      const r = await gfetch(`${API}/sessions`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ pickingConfig: { maxItemCount: '1' } }) });
+      if (!r.ok) throw new Error('Could not start a Google Photos session (' + r.status + ').');
+      session = await r.json();
+      if (win) win.location = session.pickerUri; else window.open(session.pickerUri, '_blank');
+      modal.classList.add('show');
+      let interval = secs(session.pollingConfig && session.pollingConfig.pollInterval);
+      const deadline = Date.now() + secs(session.pollingConfig && session.pollingConfig.timeoutIn || '600s');
+      while (!signal.aborted) {
+        await sleep(interval, signal);
+        const g = await gfetch(`${API}/sessions/${session.id}`, { signal });
+        if (!g.ok) throw new Error('Lost the Google Photos session.');
+        const st = await g.json();
+        if (st.mediaItemsSet) break;
+        if (st.pollingConfig && st.pollingConfig.pollInterval) interval = secs(st.pollingConfig.pollInterval);
+        if (Date.now() > deadline) throw new Error('Timed out waiting for a photo.');
+      }
+      $('modalText').innerHTML = '<span class="spin"></span>Downloading your photo…';
+      const l = await gfetch(`${API}/mediaItems?sessionId=${encodeURIComponent(session.id)}&pageSize=1`, { signal });
+      const items = (await l.json()).mediaItems || [];
+      if (!items.length) throw new Error('No photo was selected.');
+      const mf = items[0].mediaFile;
+      const resp = await gfetch(mf.baseUrl + '=d', { signal });
+      if (!resp.ok) throw new Error('Could not download the photo (' + resp.status + ').');
+      const blob = await resp.blob();
+      try { if (win && !win.closed) win.close(); } catch {}
+      loadFile(new File([blob], mf.filename || 'photo.jpg', { type: mf.mimeType || blob.type || 'image/jpeg' }));
+    } catch (e) {
+      if (e.name !== 'AbortError') setStatus(e.message, 'err');
+      try { if (win && !win.closed) win.close(); } catch {}
+    } finally {
+      modal.classList.remove('show');
+      $('modalText').innerHTML = '<span class="spin"></span>A Google Photos tab has opened. Choose one photo there and press <b>Done</b> — it will appear here automatically.';
+      if (session) gfetch(`${API}/sessions/${session.id}`, { method: 'DELETE' }).catch(() => {});
+      pickAbort = null;
+    }
+  };
+  $('modalCancel').onclick = () => { if (pickAbort) pickAbort.abort(); };
 
   // ---------- PWA ----------
   if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
