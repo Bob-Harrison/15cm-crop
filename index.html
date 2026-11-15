@@ -366,7 +366,7 @@
   let tt; function toast(t) { const el = $('toast'); el.textContent = t; el.classList.add('show'); clearTimeout(tt); tt = setTimeout(() => el.classList.remove('show'), 2200); }
 
   // ---------- Google Photos (Picker API) ----------
-  const DEFAULT_CLIENT_ID = '';   // optionally hard-code your OAuth client ID here
+  const DEFAULT_CLIENT_ID = '400121007911-v2ulirhuuvguoca8tgph30a55vu01f78.apps.googleusercontent.com';
   const SCOPE = 'https://www.googleapis.com/auth/photospicker.mediaitems.readonly';
   const API = 'https://photospicker.googleapis.com/v1';
   let token = null, tokenExp = 0, pickAbort = null;
